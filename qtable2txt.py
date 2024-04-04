@@ -18,13 +18,14 @@ def list2string(arr:list):
     return str_list
 
 def s2cart(state:int, cnversor):
-    vec = np.where(state == cnversor)
+    vec = np.where(cnversor == state)
     g1, g2, g3, g4, row, col, psi = vec[0][0], vec[1][0], vec[2][0], vec[3][0], vec[4][0], vec[5][0], vec[6][0]
     return [g1, g2, g3, g4, row, col, psi]
 
 def main():
-    row, col = 9, 9
+    row, col = 11, 11
     q_table = load_q_table('qtable')
+
     conversor = create_conversor(row, col)
     header = ['g1', 'g2', 'g3', 'g4', 'row', 'col', 'psi', 'action']
     data = []
@@ -50,8 +51,8 @@ def main():
 
 
 if __name__ == '__main__':
-    q_table = load_q_table('qtable')
-    conversor = create_conversor(9, 9)
+    #q_table = load_q_table('qtable')
+    #conversor = create_conversor(11, 11)
     main()
 
-    print(s2cart(0, conversor))
+   # print(s2cart(0, conversor))

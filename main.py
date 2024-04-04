@@ -3,6 +3,7 @@ from agent import Agent
 from openinstance import OpenInstance
 from agents_stats import agents_stats
 import numpy as np
+import matplotlib.pyplot as plt
 
 def main():
     # Load map
@@ -16,7 +17,7 @@ def main():
 
     # Define living and turning penalty plus goal reward
     r_l = -1
-    r_t = -1
+    r_t = -2
     r_g = 10
 
     # Setting four goals state
@@ -42,15 +43,19 @@ def main():
     # Applying Q-table inicialization
     #agent.Q[:,0] = 1
 
-    #agent.Q = np.loadtxt('qtable.txt')
+    agent.Q = np.loadtxt('qtable.txt')
 
-    agent.train(n_episodes, 1, 1)
-
+    #agent.train(n_episodes, 1, 1)
 
     # Loading agents stats
     metrics = agents_stats(agent, env)
+    path, act, length, turn, time = metrics.get_path((0,0,0,0,10,0,0))
     print(metrics.get_success_rate())
+    dist, turns, planning_time = metrics.get_stats()
+    print(np.mean(dist), np.mean(turns), np.mean(planning_time * 1000))
 
+    plt.boxplot(dist)
+    plt.show()
 
 if __name__ == '__main__':
     main()

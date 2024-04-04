@@ -1,18 +1,10 @@
 import numpy as np
 
 class GridWorld:
-    ANGLES2STATE = {0  : 0,
-                    90 : 1,
-                    180: 2,
-                    -90: 3}
-
-    STATE2ANGLE = {0 : 0,
-                   1: 90,
-                   2: 180,
-                   3: -90}
-    def __init__(self, rows, cols, start, Ks, Kt, Kg):
+    def __init__(self, rows, cols, height, start, Kd, Ks, Kt, Kg):
         '''
         Defines Rewards according to 3 parameters
+            Kd --> Constant reward for obstacle proximity
             Ks --> Constant reward  for each step
             Kt --> Constant reward for changing routes this should encourage straigh lines
             Kg --> Reward for reaching the goal
@@ -20,34 +12,31 @@ class GridWorld:
         '''
         #Define reward
         self.Ks = Ks
+        self.Kd = Kd
         self.Kt = Kt
         self.Kg = Kg
         self.reward = 0
+        self.reward_safety = []
 
         # set grid world size
         self.rows = rows #number of rows, so if rows=4, we will have rows labeld from 0-3
         self.cols = cols #number of columns, so if cols=4, we will have columns labeld from 0-3
+        self.height = height #number of columns, so if cols=4, we will have columns labeld from 0-3
 
         # set initial position
         self.start = start
-        self.row = start[0] #starting x
-        self.col = start[1] #starting y
-        self.psi = 0
-        self.g1 = 0
-        self.g2 = 0
-        self.g3 = 0
-        self.g4 = 0
+        self.i = start[0] #starting i
+        self.j = start[1] #starting j
+        self.k = 0
 
         # set goal position
-        self.goal = (self.rows-1,self.cols-1, 0)
-        self.goals = dict()
-        self.flag_goals = False
+        self.goal = (self.rows-1,self.cols-1, self.height-1)
 
         # set done verify
         self.done = False # Means the episode hasn't ended
 
         # set obtacles position
-        self.obstacles = []
+        self.obstacles=[]
 
         # set last action
         self.last_action = 0
@@ -56,207 +45,400 @@ class GridWorld:
         self.current_action = 0
 
         # action space
-        self.actions = [0, 1, 2]
+        self.actions = {}
+        self.get_energyCost()
         self.QTable=[]
-
-        self.states = np.arange(self.rows * self.cols * 4 * 16)
-        self.states = self.states.reshape([2, 2, 2, 2, self.rows, self.cols, 4])
 
     def get_obstacles(self):
         return self.obstacles
 
     def set_obstacles(self, obstacles):
         self.obstacles = obstacles
+        self.get_reward_safety()
 
     def get_current_position(self):
-        return self.row, self.col, self.psi
+        return self.i, self.j, self.k
 
     def set_current_position(self, position:tuple):
-        self.row, self.col, self.psi = position
+        self.i, self.j, self.k = position
 
-    def c2s(self, cartesian_position):
-        ''' returns the position in the cell given the 3D Cartesian coordinate
-        (i, j) -> s
+    def refine_reward(self, action:int, previous_position:tuple, current_position:tuple):
+        i_p, j_p, k_p = previous_position
+        i_c, j_c, k_c = current_position
+        k = 20
+        if action == 4: ## ARRUMAR j_c -1 > 0
+
+            if (self.cart2s((i_c, j_c - 1, k_c)) in self.get_obstacles()) and (j_c > 0) or \
+            (self.cart2s((i_c - 1, j_c, k_c)) in self.get_obstacles()) and (i_c > 0):
+              #  print('entrei4', self.cart2s(current_position))
+              #  print(self.cart2s((i_c -1, j_c, k_c)), self.cart2s((i_c , j_c - 1, k_c)))
+                return 1#self.Kd * k
+
+        elif action == 5:
+            if (self.cart2s((i_c, j_c + 1, k_c)) in self.get_obstacles()) and (j_c < self.cols - 1)or \
+            (self.cart2s((i_c - 1, j_c, k_c)) in self.get_obstacles()) and (i_c > 0):
+               # print('entrei5')
+                return 1#self.Kd * k
+
+        elif action == 6:
+            if (self.cart2s((i_c, j_c - 1, k_c)) in self.get_obstacles()) and (j_c > 0) or \
+            (self.cart2s((i_c + 1, j_c, k_c)) in self.get_obstacles()) and (i_c < self.rows- 1):
+                #print('entrei6')
+                return 1#self.Kd * k
+
+
+        elif action == 7:
+            if (self.cart2s((i_c +1, j_c, k_c)) in self.get_obstacles()) and (i_c < self.rows - 1) or \
+            (self.cart2s((i_c , j_c + 1, k_c)) in self.get_obstacles()) and (j_c < self.cols - 1):
+                #print('entrei7')
+                return 1#self.Kd * k
+
+        return 0
+
+
+    def get_energyCost(self):
         '''
-        i, j = cartesian_position
-        s = self.cols * i + j
-        return s
-
-    def s2c(self, s_position):
-        ''' returns the position in the 2D Cartesian coordinate given the cell
-        s -> (i, j)
+            this function return the energy cost of the current state
+            0:Down
+            1:Up
+            2:Right
+            3:Left
+            4:Down and Right
+            5:Down and Left
+            6:Up and Right
+            7:Up and Left
+            8:Upside
+            9:Downside
         '''
-        i = int(s_position /(self.cols))
-        j = s_position % (self.cols)
-        return (j, i)
 
+        action_vector = {0: np.array([0, -1]),
+                        1: np.array([0, 1]),
+                        2: np.array([1, 0]),
+                        3: np.array([-1, 0]),
+                        4: np.array([1, -1])/np.sqrt(2),
+                        5: np.array([-1, -1])/np.sqrt(2),
+                        6: np.array([1, 1])/np.sqrt(2),
+                        7: np.array([-1, 1])/np.sqrt(2)}
+
+        self.energyCost = {}
+        for i in range(8):
+            for j in range(i+1, 8):
+                self.energyCost[(i, j)] = self.Kt * np.arccos(np.dot(action_vector[i], action_vector[j])) / np.pi
 
     def cart2s(self, cartesian_position):
-        ''' returns the position in the cell given the its pose
-        (row, col, psi) -> s
+        ''' returns the position in the cell given the 3D Cartesian coordinate
+        (i, j, k) -> s
         '''
-        return self.states[cartesian_position]
+        i, j, k = cartesian_position
+        s = self.cols * i + j + self.cols * self.rows * k
+        return s
 
     def s2cart(self, s_position):
-        ''' returns the pose in the 2D Cartesian coordinate given the cell
-        s -> (row, col, psi)
+        ''' returns the position in the 3D Cartesian coordinate given the cell
+        s -> (i, j, k)
         '''
-        vec = np.where(self.states == s_position)
-        g1, g2, g3, g4, row, col, psi = vec[0][0], vec[1][0], vec[2][0], vec[3][0], vec[4][0], vec[5][0], vec[6][0]
-        return (g1, g2, g3, g4, row, col, psi)
+        numCelInCrossSection = self.rows * self.cols
+        i = int(s_position /(self.cols))
+        j = s_position % (self.cols)
+        k = 0
 
-    def set_goals(self, goals:list):
-        for i, item in enumerate(goals):
-            aux1, aux2 = self.s2c(item)
-            self.goals[str(i)] = aux2, aux1
-        self.flag_goals = True
+        if s_position < numCelInCrossSection:
+            return (i, j, k)
 
-    def next_orientation(self, current, action):
-        if action == 1:
-            current += 90
-        elif action == 2:
-            current -= 90
         else:
-            raise("Ação Incorreta!\nAções permitidas: [1, 2].")
+            while s_position >= numCelInCrossSection:
+                s_position -= numCelInCrossSection
+                k += 1
+            i = int(s_position /(self.cols))
+            j = s_position % (self.cols)
+            return (i, j, k)
 
-        if current > 180:
-            current -= 360
-        elif current == -180:
-            current = 180
+    def test_move(self,action,state):
+        i, j, k =self.s2cart(state)
 
-        return self.ANGLES2STATE[current]
+        ai = self.i
+        aj = self.j
+        ak = self.k
 
+        self.i = i
+        self.j = j
+        self.k = k
+
+        if action == 0:
+            new_i = self.i+1
+            new_j = self.j
+            new_k = self.k
+        elif action == 1:
+            new_i = self.i-1
+            new_j = self.j
+            new_k = self.k
+        elif action == 2:
+            new_i = self.i
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 3:
+            new_i = self.i
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 4:
+            new_i = self.i+1
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 5:
+            new_i = self.i+1
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 6:
+            new_i = self.i-1
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 7:
+            new_i = self.i-1
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 8:
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k + 1
+        elif action == 9:
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k - 1
+
+        else:
+            print("Ação inválida.")
+            self.i=ai
+            self.j=aj
+            self.k=ak
+            return -1
+        self.i=ai
+        self.j=aj
+        self.k=ak
+        return (new_i,new_j,new_k)
 
     def step(self, action):
         ''' return new state, reward and boolean value to verify if the new state = goal
-            0:go straight
-            1:Turn Right 90
-            2:Turn Left -90
+            0:Down
+            1:Up
+            2:Right
+            3:Left
+            4:Down and Right
+            5:Down and Left
+            6:Up and Right
+            7:Up and Left
+            8:Upside
+            9:Downside
         '''
-        reward = 0
-        row, col, psi = self.get_current_position()
+        reward=0
         if action == 0:
-            if psi == 0:
-                col = col + 1
-            elif psi == 1:
-                row = row - 1
-            elif psi == 2:
-                col = col - 1
-            elif psi == 3:
-                row = row + 1
-        elif action == 1 or action == 2:
-            psi = self.next_orientation(self.STATE2ANGLE[psi], action)
+            new_i = self.i+1
+            new_j = self.j
+            new_k = self.k
+        elif action == 1:
+            new_i = self.i-1
+            new_j = self.j
+            new_k = self.k
+        elif action == 2:
+            new_i = self.i
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 3:
+            new_i = self.i
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 4:
+            new_i = self.i+1
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 5:
+            new_i = self.i+1
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 6:
+            new_i = self.i-1
+            new_j = self.j+1
+            new_k = self.k
+        elif action == 7:
+            new_i = self.i-1
+            new_j = self.j-1
+            new_k = self.k
+        elif action == 8:
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k + 1
+        elif action == 9:
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k - 1
         else:
             print("Ação inválida.")
 
-        if not self.is_onboard((row, col, psi)):
+        if not self.is_onboard((new_i, new_j, new_k)):
             # Cancel action
-            row = self.row
-            col = self.col
-            psi = self.psi
-        # Retirei este caso para testar
-        # Agora o episodio acaba quando o agente bate no obstaculo
-        # E isto está implementado dentro da função get_reward
-        if self.c2s((row, col)) in self.obstacles:
-        #    # Cancel action
-            row = self.row
-            col = self.col
-            psi = self.psi
-        #    reward = -self.Kg
-        #    self.done = True
-        new_state = (self.g1, self.g2, self.g3, self.g4, row, col, psi)
-        reward += self.get_reward(action, new_state) # reward of distance and energy
-        new_state = (self.g1, self.g2, self.g3, self.g4, row, col, psi)
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k
+        if self.cart2s((new_i, new_j, new_k)) in self.obstacles:
+            # Cancel action
+            new_i = self.i
+            new_j = self.j
+            new_k = self.k
+            reward=-self.Kg
+            self.done=True
 
-        if self.is_done(new_state):
+        reward += self.reward_safety[(new_i, new_j, new_k)] # reward of safety
+        reward += self.get_reward() # reward of distance and energy
+        if self.refine_reward(action, (self.i, self.j, self.k), (new_i, new_j, new_k)):
+            reward -= self.Kg
+            self.done = True
+        #reward += self.refine_reward(action, (self.i, self.j, self.k), (new_i, new_j, new_k)) ## LINHA DO "TIRA QUINA"
+        new_state = (new_i, new_j, new_k)
+
+        if new_state == self.goal:
             self.done = True
         return (new_state), reward, self.done
 
-    def is_done(self, state):
-
-        if (self.g1 == 1) and (self.g2 == 1) and (self.g3 == 1) and (self.g4 == 1):
-            return 1
-
-
-        # Comentei esses caras abaixos devido a estar utilizando mais de um destino
-        #row, col, psi = state
-        #row_g, col_g, psi_g = self.goal
-        #if (row, col) == (row_g, col_g):
-        #    return 1
-        #return 0
-
-    def get_reward(self, action, new_state):
+    def get_reward(self):
         '''
         this function return a reward for each step
         '''
-        g1, g2, g3, g4, row, col, _ = new_state
-        row_g, col_g, _ = self.goal
-        reward = self.Ks
+        reward = 0
+        reward = 0
+        if self.current_action != self.last_action:
+            if self.current_action <= 7 and self.last_action <= 7:
+                try:
+                    reward = self.energyCost[(self.last_action, self.current_action)]
+                except:
+                    reward = self.energyCost[(self.current_action, self.last_action)]
 
-        if action == 0:
-            reward += 0
-        else:
-            reward += self.Kt
 
-        if self.flag_goals == True:
-            for i, item in enumerate(list(self.goals.values())):
-                if ((row, col) == item) and i == 0 and g1 == 0:
-                    self.g1 = 1
-                    reward += self.Kg
-                elif ((row, col) == item) and i == 1 and g2 == 0:
-                    self.g2 = 1
-                    reward += self.Kg
-
-                elif ((row, col) == item) and i == 2 and g3 == 0:
-                    self.g3 = 1
-                    reward += self.Kg
-
-                elif ((row, col) == item) and i == 3 and g4 == 0:
-                    self.g4 = 1
-                    reward += self.Kg
-
-                if (self.g1 == 1) and (self.g2 == 1) and (self.g3 == 1) and (self.g4 == 1):
-                    reward += self.Kg
-                    self.done = True
-
-        else:
-            if (row, col) == (row_g, col_g):
-                reward += self.Kg
-                self.done = True
-
-        if self.c2s((row, col)) in self.obstacles:
-            reward -= self.Kg
-            #self.done = True
+        if self.current_action > 3 and self.current_action <= 7:
+            reward += self.Ks * 1.4
+        elif self.current_action < 4:
+            reward += self.Ks
+        elif self.current_action == 8:
+            reward += self.Ks * 1
+        elif self.current_action == 9:
+            reward += self.Ks * 1
         return reward
+
+
+    def get_reward_safety(self):
+        '''
+        this function create safety reward
+        '''
+        reward_step = np.zeros([self.rows, self.cols, self.height])
+        reward_step[self.goal] = self.Kg
+
+        reward_safety = np.ones([self.rows, self.cols, self.height])
+
+        for i in range(self.rows):
+            for j in range(self.cols):
+                for k in range(self.height):
+                    obstacleList = []
+                    for obstacle in self.obstacles:
+                        oi, oj, ok = self.s2cart(obstacle)
+                        #oz=oz/2
+                        distance = np.sqrt((i - oi)**2 + (j - oj)**2 + (k - ok)**2)
+                        obstacleList.append(distance)
+                    obstacleList.sort()
+                    obstacleList = obstacleList[0:10]
+                    penalty = 0
+
+
+                    for it in range(len(obstacleList)):
+                        penalty += min(0, (3 - obstacleList[it]) * self.Kd)
+
+                    reward_safety[i][j][k] = penalty * reward_safety[i][j][k]
+        self.reward_safety = reward_safety + reward_step
+
+    def actionSpace(self):
+        '''
+        This function set the possible action space for each state removing actions that
+        would leave out of the board or towards a obstacle
+        '''
+        self.actions = {}
+
+        for state in range(0, self.cart2s((self.rows-1, self.cols-1, self.height-1))+1):
+            self.actions[state] = list((0,1,2,3,4,5,6,7))
+            #print("Actions for state ",state,' before')
+            #print(self.actions[state])
+            action=0
+            while action<=7:
+                ni,nj,nk = self.test_move(action,state)
+                #print(nx,ny,nz, ' For action',action, 'in state',state)
+                if self.is_onboard((ni,nj,nk)):
+                    pass
+                else:
+                    #print('Removing Action',action,' From state',state)
+                    #input('Press to continue')
+                    self.removeAction(action,state)
+                #print("Actions for state ",state,' after removal')
+                #print(self.actions[state])
+                action+=1
+
+        # for obstacle in self.obstacles:
+        #     '''
+        #     x -> raw
+        #     y -> cols
+        #     z -> height
+        #     '''
+        #     x, y, z = self.s2cart(obstacle)
+
+        #     if self.is_onboard((x-1, y, z)): # remove down action (0)
+        #         self.removeAction(0, self.cart2s((x-1, y, z)))
+        #     if self.is_onboard((x+1, y, z)): # remove up action (1)
+        #         self.removeAction(1, self.cart2s((x+1, y, z)))
+        #     if self.is_onboard((x, y-1, z)): # remove right action (2)
+        #         self.removeAction(2, self.cart2s((x, y-1, z)))
+        #     if self.is_onboard((x, y+1, z)): # remove left action (3)
+        #         self.removeAction(3, self.cart2s((x, y+1, z)))
+        #     if self.is_onboard((x+1, y+1, z)): # remove up and left action (7)
+        #         self.removeAction(7, self.cart2s((x+1, y+1, z)))
+        #     if self.is_onboard((x-1, y+1, z)): # remove down and left action (5)
+        #         self.removeAction(5, self.cart2s((x-1, y+1, z)))
+        #     if self.is_onboard((x+1, y-1, z)): # remove up and right action (6)
+        #         self.removeAction(6, self.cart2s((x+1, y-1, z)))
+        #     if self.is_onboard((x-1, y-1, z)): # remove down and right action (4)
+        #         self.removeAction(4, self.cart2s((x-1, y-1, z)))
+
+            #print('ok2')
+
+
+    def removeAction(self, index, state):
+        '''
+        this function remove actions
+        '''
+        if index in self.actions[state]:
+            self.actions[state].remove(index)
+
 
 
     def is_onboard(self, cartesian_position):
         '''
         checks if the agent is in the environment and return true or false
         '''
-        x, y, z = cartesian_position
-        if x < 0 or x >= self.rows or y < 0 or y >= self.cols:
+        i, j, k = cartesian_position
+        if i < 0 or i >= self.rows or j < 0 or j >= self.cols or k < 0 or k >= self.height:
             return 0
         return 1
 
     def reset(self, start=0):
-        self.g1 = self.g2 = self.g3 = self.g4 = 0
         if start==0:
-            self.row = self.start[0]
-            self.col = self.start[1]
-            self.psi = self.start[2]
+            self.i = self.start[0]
+            self.j = self.start[1]
+            self.k = self.start[2]
         else:
-            self.row = start[0]
-            self.col = start[1]
-            self.psi = start[2]
+            self.i = start[0]
+            self.j = start[1]
+            self.k = start[2]
         self.done = False
 
-    def PrintBestAction(self, Q, k): # Preciso arrumar esse cara.
-        # Os prints não estão corretos.
+    def PrintBestAction(self, Q, k):
             for i in range(0, self.rows):
                 print(72*'-')
                 for j in range(0, self.cols):
-                    if self.c2s((i,j)) in self.obstacles:
+                    if self.cart2s((i,j,k)) in self.obstacles:
                         print('  X  ',end='|')
                     else:
                         if np.argmax(Q[self.cart2s((i,j,k)),:])==0:
@@ -284,21 +466,26 @@ class GridWorld:
                         print()
             print()
 
-    def debug(self, q_table, origin = (0,0,0,0,0,0,0), reset = False):
-        actions = {0:'Go',
-                    1:'Left',
-                    2:'Right'}
+    def debug(self, q_table, origin = (0,0,0), reset = False):
+        actions = {0:'Down',
+                    1:'Up',
+                    2:'Right',
+                    3:'Left',
+                    4:'Down and Right',
+                    5:'Down and Left',
+                    6:'Up and Right',
+                    7:'Up and Left',
+                    8:'Upside',
+                    9:'Downside'}
         if reset == True:
 
-            self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi = origin
+            self.i, self.j, self.k = origin
             self.done = False
         else:
-           # print(self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi)
-            best_action = np.argmax(q_table[self.cart2s((self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi))])
-           # print(f'action taken: {actions[best_action]}')
+            best_action = np.argmax(q_table[self.cart2s((self.i, self.j, self.k))])
+            print(f'action taken: {actions[best_action]}')
             state, reward, done = self.step(best_action)
-           # print(state)
-            self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi = state
+            self.i, self.j, self.k = state
 
     def get_distance(self,Path):
         dist=[]
@@ -316,28 +503,31 @@ class GridWorld:
     def get_meanDist(self,Path):
         #get mean of minimum distance
         dist=[]
+
+
         for cell in Path:
             obstacleList = []
             i,j,k=self.s2cart(cell)
             k/=2
             for obstacle in self.obstacles:
-                ox, oy = self.s2c(obstacle)
+                oi, oj, ok = self.s2cart(obstacle)
                 #oz=oz/2
-                distance = np.sqrt((i - ox)**2 + (j - oy)**2)
+                distance = np.sqrt((i - oi)**2 + (j - oj)**2 + (k - ok)**2)
                 obstacleList.append(distance)
             obstacleList.sort()
             dist.append(sum(obstacleList[0:10]))
         return np.mean(dist)
 
 
+
     def onMap(self):
-        k = self.psi
+        k = self.k
         for i in range(self.rows):
             print(72 * '-')
             for j in range(self.cols):
                 if self.cart2s((i, j, k)) in self.obstacles:
                     print('  X  ', end = '|')
-                elif (i, j, k) == (self.row, self.col, self.psi):
+                elif (i, j, k) == (self.i, self.j, self.k):
                     print('  A  ', end = '|')
                 else:
                     print('     ', end='|')
@@ -346,7 +536,7 @@ class GridWorld:
     def getGrafo(self):
         row = self.rows
         col = self.cols
-        height = 1
+        height = self.height
         grafo = {}
         for k in range(height):
             for i in range(row):
@@ -357,10 +547,6 @@ class GridWorld:
                                                 (i-1,j,k): 1,
                                                 (i,j+1,k): 1,
                                                 (i,j-1,k): 1,
-                                                (i+1,j+1,k): np.sqrt(2),
-                                                (i+1,j-1,k): np.sqrt(2),
-                                                (i-1,j-1,k): np.sqrt(2),
-                                                (i-1,j+1,k): np.sqrt(2),
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5
                                                 }
@@ -368,55 +554,43 @@ class GridWorld:
                             grafo[(i, j, k)] = {(i+1,j,k): 1,
                                                 (i, j-1, k): 1,
                                                 (i, j+1, k): 1,
-                                                (i+1, j+1, k): np.sqrt(2),
-                                                (i+1, j-1, k): np.sqrt(2),
                                                 (i, j, k+1): .5,
                                                 (i, j, k-1): .5}
                         elif (i == row-1) and (j > 0 and j < col-1):
                             grafo[(i, j, k)] = {(i-1,j,k): 1,
                                                 (i, j-1, k): 1,
                                                 (i, j+1, k): 1,
-                                                (i-1, j+1, k): np.sqrt(2),
-                                                (i-1, j-1, k): np.sqrt(2),
                                                 (i, j, k+1): .5,
                                                 (i, j, k-1): .5}
                         elif (j == 0) and (i>0 and i < row-1):
                             grafo[(i, j, k)] = {(i+1,j,k):1,
                                                 (i-1,j,k): 1,
                                                 (i,j+1,k): 1,
-                                                (i+1,j+1,k): np.sqrt(2),
-                                                (i-1,j+1,k): np.sqrt(2),
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
                         elif (j == col-1) and (i>0 and i < row-1):
                             grafo[(i, j, k)] = {(i+1,j,k): 1,
                                                 (i-1,j,k): 1,
                                                 (i,j-1,k): 1,
-                                                (i+1,j-1,k): np.sqrt(2),
-                                                (i-1,j-1,k): np.sqrt(2),
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
                         elif (i == 0 and j == 0):
                             grafo[(i, j, k)] = {(i+1,j,k): 1,
-                                                (i+1,j+1,k): np.sqrt(2),
                                                 (i,j+1,k): 1,
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
                         elif (i == 0 and j == col-1):
                             grafo[(i, j, k)] = {(i+1,j,k): 1,
-                                                (i+1,j-1,k): np.sqrt(2),
                                                 (i,j-1,k): 1,
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
                         elif (i == row -1 and j == 0):
                             grafo[(i, j, k)] = {(i-1,j,k): 1,
-                                                (i-1,j+1,k): np.sqrt(2),
                                                 (i,j+1,k): 1,
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
                         elif (i == row-1 and j == col -1):
                             grafo[(i, j, k)] = {(i-1,j,k): 1,
-                                                (i-1,j-1,k): np.sqrt(2),
                                                 (i,j-1,k): 1,
                                                 (i,j,k+1): .5,
                                                 (i,j,k-1): .5}
@@ -440,20 +614,16 @@ class GridWorld:
         this function return the best path for the robot to follow using Q-learning
         '''
         bestPath = []
-        choosen_actions = []
 
         # get the best path
         self.debug(Q_table, initial, reset=True)
-        self.done = False
         while not self.done:
-            state = self.cart2s((self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi))
+            state = self.cart2s((self.i, self.j, self.k))
             best_action = np.argmax(Q_table[state])
-
             newState, reward, done = self.step(best_action)
-            print(self.g1, self.g2, self.g3, self.g4, "POSITION", self.row, self.col,'ACTION' , best_action, "REWARD", reward)
-            self.g1, self.g2, self.g3, self.g4, self.row, self.col, self.psi = newState
+            self.i, self.j, self.k = newState
             bestPath.append(self.cart2s(newState))
-        return bestPath, best_action
+        return bestPath
 
     def testConvergence(self, Q_table):
         '''
@@ -473,10 +643,10 @@ class GridWorld:
                         countStep = 0
                         self.debug(Q_table, (i, j, k), reset=True)
                         while (not self.done) and (maxSteps > countStep):
-                            state = self.cart2s((self.row, self.col, self.psi))
+                            state = self.cart2s((self.i, self.j, self.k))
                             best_action = np.argmax(Q_table[state])
                             newState, reward, done = self.step(best_action)
-                            self.row, self.col, self.psi = newState
+                            self.i, self.j, self.k = newState
                             countStep += 1
                             self.done = done
                         if self.done == False:
@@ -592,10 +762,28 @@ class GridWorld:
                 print("|", end='')
         print('\n',self.cols*'---')
 
+    def  demolish(self,states:list):
+        #returns a list of obstacles that surrounds the list of states
+        EitObs=[]
+        for s in states:
+            i,j,jk=self.s2cart(s)
+            if self.cart2s((i+1,j,jk)) not in EitObs and self.is_onboard((i+1,j,jk)) and self.cart2s((i+1,j,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i+1,j,jk)))
+            if self.cart2s((i+1,j+1,jk)) not in EitObs and self.is_onboard((i+1,j+1,jk)) and self.cart2s((i+1,j+1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i+1,j+1,jk)))
+            if self.cart2s((i+1,j-1,jk)) not in EitObs and self.is_onboard((i+1,j-1,jk)) and self.cart2s((i+1,j-1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i+1,j-1,jk)))
+            if self.cart2s((i,j,jk)) not in EitObs and self.is_onboard((i,j,jk)) and self.cart2s((i,j,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i,j,jk)))
+            if self.cart2s((i,j+1,jk)) not in EitObs and self.is_onboard((i,j+1,jk)) and self.cart2s((i,j+1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i,j+1,jk)))
+            if self.cart2s((i,j-1,jk)) not in EitObs and self.is_onboard((i,j-1,jk)) and self.cart2s((i,j-1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i,j-1,jk)))
+            if self.cart2s((i-1,j,jk)) not in EitObs and self.is_onboard((i-1,j,jk)) and self.cart2s((i-1,j,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i+1,j,jk)))
+            if self.cart2s((i-1,j+1,jk)) not in EitObs and self.is_onboard((i-1,j+1,jk)) and self.cart2s((i-1,j+1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i-1,j+1,jk)))
+            if self.cart2s((i-1,j-1,jk)) not in EitObs and self.is_onboard((i-1,j-1,jk)) and self.cart2s((i-1,j-1,jk)) not in self.obstacles:
+                EitObs.append(self.cart2s((i-1,j-1,jk)))
 
-if __name__ == "__main__":
-    env = GridWorld(9,9, (0,0,0), -1, -1, 10)
-    env.set_obstacles([9, 6])
-    env.set_goals([10, 32, 46, 80])
-    env.step(0)
-    print('oi')
+        return EitObs

@@ -1,7 +1,8 @@
 import numpy as np
-from gridworld import GridWorld
+from dijkstra import *
 
-class Agent:
+
+class qlAgent:
     def __init__(self, alpha=.1, gamma=.99, epsilon=.1, double = False):
         self.alpha = alpha
         self.gamma = gamma
@@ -11,30 +12,21 @@ class Agent:
         if double == True:
             self.__currentQTable = 1
             self.__best_action = 0
+        self.__first_action = None # The first action that was taken before the episode start
+        
 
-
-    def setEnvironment(self, environment:GridWorld):
-        self.environment = environment
+    def setEnviroment(self, enviroment):
+        self.enviroment = enviroment
+        self.__first_action = self.enviroment.last_action
         self.setPossibleStates()
-
+    
     def setPossibleStates(self):
-        self.states_ = np.arange(self.environment.rows * self.environment.cols * 4 * 16) # 4 devido aos angulos)
-        obstacle = self.environment.obstacles
-        aux = [self.environment.s2c(obs) for obs in obstacle]
-        aux2 = list()
-        for item in aux:
-            for angle in range(4):
-                for g1 in range(2):
-                    for g2 in range(2):
-                        for g3 in range(2):
-                            for g4 in range(2):
-                                aux2.append(self.environment.cart2s((g1, g2, g3, g4, item[1], item[0], angle)))
-        self.states_ = np.delete(self.states_, aux2)
-        print('oi')
-
+        self.states_ = np.arange(self.enviroment.rows * self.enviroment.cols)
+        self.states_ = np.delete(self.states_, self.enviroment.obstacles, axis=0)
+    
     def removeStates(self, states):
         self.states_ = np.setdiff1d(self.states_, states)
-
+    
     def setEpsilon(self, mode = 0, intervals = [1, .1, 500]):
         '''
         @param: mode: 0, 1 or 2
@@ -52,7 +44,7 @@ class Agent:
         else:
             self.epsilonFunction = lambda episode: self.epsilon
 
-
+    
     def setAlpha(self, mode = 0, intervals = [1, .1, 500]):
         '''
         @param: mode: 0, 1 or 2
@@ -69,31 +61,35 @@ class Agent:
             self.alphaFunction = lambda episode: max(a * self.EXP**(-b * episode), intervals[1])
         else:
             self.alphaFunction = lambda episode: self.alpha
-
+    
     def setQtable(self, numTotalStates, numActions):
         '''
         Create q table
         '''
-        self.Q = np.zeros((numTotalStates, numActions))
-
+        if self.double == False:
+            self.Q = np.zeros((numTotalStates, numActions))
+        else:
+            self.Q1 = np.zeros((numTotalStates, numActions))
+            self.Q2 = np.zeros((numTotalStates, numActions))
+    
     def exploringStarts(self, rows, cols, origin):
         '''
         Set of possible states given the initial exploration constraints
         '''
-        xo, yo, zo = origin
-        x = np.arange(xo, xo+rows)
-        y = np.arange(yo, yo+cols)
-        totalStates = len(x) * len(y)
+        io, jo, ko = origin
+        i = np.arange(io, io+rows)
+        j = np.arange(jo, jo+cols)
+        totalStates = len(i) * len(j)
         self.states_ = np.zeros(totalStates, dtype=np.ushort)
         step = 0
-        for row in x:
-            for col in y:
-                self.states_[step] = self.environment.cart2s((row, col, 0))
+        for row in i:
+            for col in j:
+                self.states_[step] = self.enviroment.cart2s((row, col, 0))
                 step += 1
-        #self.removeStates(self.environment.obstacles)
+        self.removeStates(self.enviroment.obstacles)
 
-
-
+        
+    
     def chooseAction(self, state, episode):
         '''
         chooses a action-state based on possible action-states
@@ -102,27 +98,23 @@ class Agent:
             self.Q = self.Q1 + self.Q2
 
         if np.random.rand() < self.epsilonFunction(episode):
-            action = np.random.choice(self.environment.actions)
+            action = np.random.choice(self.enviroment.actions[state])
             return action
         else:
             action = np.argmax(self.Q[state,:])
             return action
-
+    
     def chooseBestAction(self, state):
         if self.double == True:
             self.Q = self.Q1 + self.Q2
         return np.argmax(self.Q[state,:])
-
+    
     def chooseInitialState(self):
         '''
         chooses a random initial state based on possible states
         '''
         initialState = np.random.choice(self.states_)
-        #vec_initial = self.environment.s2cart(initialState)
-        #while vec_initial[:4] == (1, 1, 1, 1):
-        #    initialState = np.random.choice(self.states_)
-        #    vec_initial = self.environment.s2cart(initialState)
-        self.updateEnvironment(initialState)
+        self.updateEnviroment(initialState)
         return initialState
 
 
@@ -130,29 +122,25 @@ class Agent:
         '''
         Update action in grid world
         '''
-        self.environment.current_action = action
+        self.enviroment.current_action = action
 
-
+    
     def move(self, action):
         '''
         Move agent in grid world
         '''
-        newState, reward, done = self.environment.step(action)
+        newState, reward, done = self.enviroment.step(action)
         return newState, reward, done
-
-    def updateEnvironment(self, state):
+    
+    def updateEnviroment(self, state):
         '''
         Update position of the agent in grid world
         '''
-        g1, g2, g3, g4, row, col, psi = self.environment.s2cart(state)
-        self.environment.g1 = g1
-        self.environment.g2 = g2
-        self.environment.g3 = g3
-        self.environment.g4 = g4
-        self.environment.row = row
-        self.environment.col = col
-        self.environment.psi = psi
-        self.environment.last_action = self.environment.current_action
+        i, j, k = self.enviroment.s2cart(state)
+        self.enviroment.i = i
+        self.enviroment.j = j
+        self.enviroment.k = k
+        self.enviroment.last_action = self.enviroment.current_action
 
 
     def updateQTable(self, state, action, reward, newState,done, episode):
@@ -160,7 +148,7 @@ class Agent:
         Update q-table
         '''
         self.Q[state, action] = (1 - self.alphaFunction(episode)) * self.Q[state, action] + self.alphaFunction(episode) * (reward + (1-done)*self.gamma * max(self.Q[newState, :]))
-
+    
     def updateDQtable(self, state, action, reward, newState, done, episode):
 
         if np.random.rand() <= .5:
@@ -176,10 +164,10 @@ class Agent:
 
     def reset(self,start=0):
         '''
-        reset environment
+        reset enviroment
         '''
-        self.environment.reset(start)
-
+        self.enviroment.reset(start)
+    
     def plot(self, scorePerEpisode, stepsPerEpisode, TDerrorPerEpisode):
         '''
         this method plots to statistics during training, like: score per episode, steps per episode and 50 periods moving average
@@ -187,14 +175,14 @@ class Agent:
         import matplotlib.pyplot as plt
 
         moving_average = lambda data, periods: np.convolve(data, np.ones(periods), 'valid') / periods
+    
 
-        period = 50
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=(12, 8))
-        ax1.plot(moving_average(TDerrorPerEpisode, period))
+        ax1.plot(moving_average(TDerrorPerEpisode, 50))
         ax1.set_title("TD error per episode")
-        ax2.plot(moving_average(stepsPerEpisode, period))
+        ax2.plot(moving_average(stepsPerEpisode, 50))
         ax2.set_title("Steps per episode")
-        ax3.plot(moving_average(scorePerEpisode, period))
+        ax3.plot(moving_average(scorePerEpisode, 50))
         ax3.set_title("Reward per episode")
         fig.tight_layout()
         ax1.grid()
@@ -220,21 +208,25 @@ class Agent:
             score = 0
             done = False
             TDerror = 0
+            self.enviroment.last_action = self.__first_action
             self.reset()
-            print(f'Episode {episode}', end='\r')
             if episode % frequency == 0:
                 self.chooseInitialState()
             while done == False:
-                g1, g2, g3, g4 = self.environment.g1, self.environment.g2, self.environment.g3, self.environment.g4
-                state = self.environment.cart2s((g1, g2, g3, g4, self.environment.row, self.environment.col, self.environment.psi))
-                action = self.chooseAction(state, episode)
+                state = self.enviroment.cart2s((self.enviroment.i, self.enviroment.j, self.enviroment.k))
+                try:
+                    action = self.chooseAction(state, episode)
+                except:
+                   # print('Estado:',state, 'Dict:',self.enviroment.actions[state],'Posição do Agente:',self.enviroment.i  ,self.enviroment.j,'Lista',self.states_, end='\r')
+                    #input('Vai')
+                    pass
                 self.updateAction(action)
                 newState, reward, done = self.move(action)
-                newState = self.environment.cart2s(newState)
+                newState = self.enviroment.cart2s(newState)
                 TDerror += self.__getTDerror(state, action, reward, newState, done, plot)
                 update(state, action, reward, newState, done, episode)
                 state = newState
-                self.updateEnvironment(state)
+                self.updateEnviroment(state)
                 step += 1
                 score += reward
             scorePerEpisode[episode] = score
@@ -244,9 +236,7 @@ class Agent:
             self.Q = self.Q1 + self.Q2
         if plot == True:
             self.plot(scorePerEpisode, stepsPerEpisode, TDerrorPerEpisode)
-
-        np.savetxt('qtable.txt', self.Q)
-
+    
     def __getTDerror(self, state, action, reward, newState, done, plot):
         if plot == False:
             return 0
@@ -263,23 +253,30 @@ class Agent:
         Return q table
         '''
         return self.Q
-
+    
     def getBestPath(self, startPos):
-        path = self.environment.getBestPath(startPos, self.Q)
-        path.insert(0, self.environment.cart2s(startPos))
+        path = self.enviroment.getBestPath(startPos, self.Q)
+        path.insert(0, self.enviroment.cart2s(startPos))
         return path
+    
+    def getDijkstraPath(self, startPos):
+        grafo = self.enviroment.getGrafo()
+        dijkstra = Dijkstra(grafo, self.enviroment.cart2s(startPos))
+        distancias, bestPath, pais = dijkstra.run()
+        dijkstraPath = dijkstra.getPath(self.enviroment.cart2s(self.enviroment.goal))
+        return dijkstraPath
 
     def getStats(self, startPos):
-        print(f'Fail rate: {self.environment.testConvergence(self.Q)}%' )
+        print(f'Fail rate: {self.enviroment.testConvergence(self.Q)}%' )
         print('\nQ learning stats:')
-        print('Lenght: %.2f' %self.environment.get_distance(self.getBestPath(startPos)))
-        print('Mean Distance: %.2f ' % self.environment.get_meanDist(self.getBestPath(startPos)))
+        print('Lenght: %.2f' %self.enviroment.get_distance(self.getBestPath(startPos)))
+        print('Mean Distance: %.2f ' % self.enviroment.get_meanDist(self.getBestPath(startPos)))
 
 
         print('\nDijkstra stats:')
-        print('Lenght: %.2f' % self.environment.get_distance(self.getDijkstraPath(startPos)))
-        print('Mean Distance: %.2f' % self.environment.get_meanDist(self.getDijkstraPath(startPos)))
-
+        print('Lenght: %.2f' % self.enviroment.get_distance(self.getDijkstraPath(startPos)))
+        print('Mean Distance: %.2f' % self.enviroment.get_meanDist(self.getDijkstraPath(startPos)))
+    
     def getRank(self, path):
         distanceRank = self.getRankDist(path)
         energyRank = self.getRankEnergy(path)
@@ -287,10 +284,10 @@ class Agent:
         return distanceRank, energyRank, proximityRank
 
     def getRankDist(self, path):
-        xo, yo, zo = self.environment.s2cart(path[0])
-        xf, yf, zf = self.environment.s2cart(path[-1])
-        lengthPath = self.environment.get_distance(path)
-        euclideanDistance = np.linalg.norm([xf - xo, yf - yo])
+        io, jo, ko = self.enviroment.s2cart(path[0])
+        ie, je, ke = self.enviroment.s2cart(path[-1])
+        lengthPath = self.enviroment.get_distance(path)
+        euclideanDistance = np.linalg.norm([ie - io, je - jo])
         return euclideanDistance/lengthPath
 
     def getRankEnergy(self, path):
@@ -302,19 +299,19 @@ class Agent:
             energyCost += self.__getEnergyCost(last_action, current_action)
             last_action = current_action
         return energyCost
-
+    
     def getRankObstaclesProximity(self, path):
-        return self.environment.get_meanDist(path)
-
+        return self.enviroment.get_meanDist(path)
+    
     def __getEnergyCost(self, last_action, current_action):
         energyCost = 0
         if last_action != current_action:
             try:
-                energyCost += self.environment.energyCost[(last_action, current_action)]
+                energyCost += self.enviroment.energyCost[(last_action, current_action)]
             except:
-                energyCost += self.environment.energyCost[(current_action, last_action)]
+                energyCost += self.enviroment.energyCost[(current_action, last_action)]
         return energyCost
-
+    
     def __OneStep(self, initialState: int) -> list:
         maxsteps = 100
         step = 0
@@ -322,16 +319,16 @@ class Agent:
         path = [initialState]
         last_state = 66
         done = False
-        self.environment.reset()
+        self.enviroment.reset()
         while done == False and last_state != state:
             last_state = state
-            self.updateEnvironment(state)
+            self.updateEnviroment(state)
             action = self.chooseBestAction(state)
             self.updateAction(action)
             newState, reward, done = self.move(action)
-            newState = self.environment.cart2s(newState)
+            newState = self.enviroment.cart2s(newState)
             state = newState
-            self.updateEnvironment(state)
+            self.updateEnviroment(state)
             step += 1
             if last_state != newState:
                 path.append(state)
@@ -340,21 +337,21 @@ class Agent:
         return path
 
     def FindInPolicy(self, position : tuple, size : int = 1) -> dict:
-        x, y, z = position
-        x_possibles = np.arange(x - size, x + size + 1)
-        y_possibles = np.arange(y - size, y + size + 1)
-        z_possibles = np.arange(z - size, z + size + 1)
+        i, j, k = position
+        i_possibles = np.arange(i - size, i + size + 1)
+        j_possibles = np.arange(j - size, j + size + 1)
+        k_possibles = np.arange(k - size, k + size + 1)
         possibles_states = []
-        for x in x_possibles:
-            for y in y_possibles:
-                if x >= 0 and y >=0:
-                    possibles_states.append(self.environment.cart2s((x, y, 0)))
+        for i in i_possibles:
+            for j in j_possibles:
+                if i >= 0 and j >=0:
+                    possibles_states.append(self.enviroment.cart2s((i, j, 0)))
 
         for state in possibles_states:
-            if state in self.environment.obstacles:
+            if state in self.enviroment.obstacles:
                 possibles_states = np.setdiff1d(possibles_states, state)
 
-        possibles_states = np.setdiff1d(possibles_states, self.environment.cart2s(position))
+        possibles_states = np.setdiff1d(possibles_states, self.enviroment.cart2s(position))
 
         states = []
         step = 0
@@ -367,23 +364,3 @@ class Agent:
         rank_path = dict()
         for i, path in enumerate(paths):
             rank_path[i] = {path: self.getRank(path)}
-
-if __name__ == '__main__':
-    env = GridWorld(9,9,(0,0,0), -1, -1, 10)
-    #env.set_obstacles([6, 8, 16, 18])
-    env.set_obstacles([1, 3, 5, 7,
-                       19, 21, 23, 25,
-                       37, 39, 41, 43,
-                       55, 57, 59, 61,
-                       73, 75, 77, 79])
-    #env.set_goals([3, 11, 13, 24])
-    env.set_goals([10, 32, 46, 80])
-
-    agent = Agent()
-    agent.setEnvironment(env)
-    agent.setQtable(9*9*4*16, 3)
-    agent.setEpsilon(1, [1, .1, 50000])
-    agent.setAlpha()
-
-    agent.train(50000, 10, 1)
-    print('oi')
