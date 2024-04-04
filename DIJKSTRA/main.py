@@ -102,7 +102,7 @@ for idx, state in enumerate(np.arange(row * col)):
         startPos = crr_goal
         path = np.concatenate([np.array(path), np.array(dijkstra_path[1:])])
 
-    distances[idx] = len(path) * .5
+    distances[idx] = (len(path) - 1) * .5
     timers[idx] = (time.time() - init) * 1000
     for dijkstra_idx in range(2, len(path)):
         crr = np.array(grid_world.s2cart(path[dijkstra_idx])[:2])
