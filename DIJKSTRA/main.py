@@ -101,9 +101,9 @@ for idx, state in enumerate(np.arange(row * col)):
 
         startPos = crr_goal
         path = np.concatenate([np.array(path), np.array(dijkstra_path[1:])])
-
-    distances[idx] = (len(path) - 1) * .5
     timers[idx] = (time.time() - init) * 1000
+    distances[idx] = (len(path) - 1) * .5
+
     for dijkstra_idx in range(2, len(path)):
         crr = np.array(grid_world.s2cart(path[dijkstra_idx])[:2])
         prev = np.array(grid_world.s2cart(path[dijkstra_idx-1])[:2])
@@ -119,5 +119,5 @@ for idx, state in enumerate(np.arange(row * col)):
             turns[idx] += 1
 
 
-plt.boxplot(distances)
+plt.boxplot(timers)
 plt.show()

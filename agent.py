@@ -245,6 +245,10 @@ class Agent:
         if plot == True:
             self.plot(scorePerEpisode, stepsPerEpisode, TDerrorPerEpisode)
 
+        np.save('score.npy', scorePerEpisode)
+        np.save('steps.npy', stepsPerEpisode)
+        np.save('TDerror.npy', TDerrorPerEpisode)
+        np.save('qtable.npy', self.Q)
         np.savetxt('qtable.txt', self.Q)
 
     def __getTDerror(self, state, action, reward, newState, done, plot):
