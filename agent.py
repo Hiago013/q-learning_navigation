@@ -204,7 +204,7 @@ class Agent:
 
 
 
-    def train(self, numEpisodes, frequency, plot = False):
+    def train(self, numEpisodes, frequency, plot = False, ii = 0):
         '''
         This method train the agent
         '''
@@ -245,11 +245,11 @@ class Agent:
         if plot == True:
             self.plot(scorePerEpisode, stepsPerEpisode, TDerrorPerEpisode)
 
-        np.save('score.npy', scorePerEpisode)
-        np.save('steps.npy', stepsPerEpisode)
-        np.save('TDerror.npy', TDerrorPerEpisode)
-        np.save('qtable.npy', self.Q)
-        np.savetxt('qtable.txt', self.Q)
+        np.save(f'results/rewards/score{ii}.npy', scorePerEpisode)
+        np.save(f'results/steps/steps{ii}.npy', stepsPerEpisode)
+        np.save(f'results/tderror/TDerror{ii}.npy', TDerrorPerEpisode)
+        np.save(f'results/qtable/qtable{ii}.npy', self.Q)
+        #np.savetxt('qtable.txt', self.Q)
 
     def __getTDerror(self, state, action, reward, newState, done, plot):
         if plot == False:

@@ -37,7 +37,7 @@ class agents_stats(object):
                 max_steps += 1
 
             if max_steps == 100:
-                print("fail", (g1, g2, g3, g4, row, col, psi), self.env.cart2s((g1, g2, g3, g4, row, col, psi)))
+                #print("fail", (g1, g2, g3, g4, row, col, psi), self.env.cart2s((g1, g2, g3, g4, row, col, psi)))
                 success_fail += 1
 
         return 100 * (len(all_states) - success_fail) / len(all_states)
@@ -85,7 +85,7 @@ class agents_stats(object):
                     if check_orientation == 1:
                         turn += 1
             if not done:
-                print("fail", init_state)
+                #print("fail", init_state)
                 continue
 
             distancias.append(length)
