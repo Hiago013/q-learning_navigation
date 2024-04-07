@@ -118,6 +118,8 @@ for idx, state in enumerate(np.arange(row * col)):
         if not np.any(crr_dif == prev_dif):
             turns[idx] += 1
 
-
-plt.boxplot(timers)
+np.save('distances_dijk.npy', distances)
+np.save('timers_dijk.npy', timers)
+np.save('turns_dijk.npy', turns)
+plt.boxplot(turns)
 plt.show()
