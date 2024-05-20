@@ -1,2 +1,2 @@
-# q-learning_navigation
-q-learning_navigation
+# multi-goal-navigation
+Multi-Objective Navigation Based On Q-Learning
