@@ -72,6 +72,7 @@ timers = np.zeros(row*col)
 turns = np.zeros(row*col)
 for idx, state in enumerate(np.arange(row * col)):
     startPos = np.array(grid_world.s2cart(state))
+    startPos = (0, 0, 0)
     goals_vec = np.array([[5, 1, 0], [4, 5, 0], [1, 7, 0], [7, 9, 0]])
     goals_state = np.array([grid_world.cart2s(goal) for goal in goals_vec])
     visitados = np.array([0, 0, 0, 0])
@@ -104,6 +105,7 @@ for idx, state in enumerate(np.arange(row * col)):
     timers[idx] = (time.time() - init) * 1000
     distances[idx] = (len(path) - 1) * .5
 
+    actions = []
     for dijkstra_idx in range(2, len(path)):
         crr = np.array(grid_world.s2cart(path[dijkstra_idx])[:2])
         prev = np.array(grid_world.s2cart(path[dijkstra_idx-1])[:2])
@@ -112,14 +114,26 @@ for idx, state in enumerate(np.arange(row * col)):
         crr_dif = crr - prev
         prev_dif = prev - prev_v
 
+
+        angle = np.rad2deg(np.arccos((crr_dif @ prev_dif) / np.linalg.norm(crr_dif) * np.linalg.norm(prev_dif)))#, np.cross(crr_dif, prev_dif)
+
+
+
+
+        #if angle == 0:
+        #    actions.append(1)
+
+        actions.append(angle)
+
         if np.all( (crr_dif + prev_dif) == (0, 0)):
             turns[idx] += 2
 
         if not np.any(crr_dif == prev_dif):
             turns[idx] += 1
+    print(actions)
 
 np.save('distances_dijk.npy', distances)
 np.save('timers_dijk.npy', timers)
 np.save('turns_dijk.npy', turns)
-plt.boxplot(turns)
+plt.boxplot(timers)
 plt.show()
